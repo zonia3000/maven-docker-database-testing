@@ -1,0 +1,210 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    
+    <groupId>net.zonia3000</groupId>
+    <artifactId>maven-docker-database-testing</artifactId>
+    <version>1.0</version>
+    
+    <packaging>jar</packaging>
+    
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.source>1.8</maven.compiler.source>
+        <maven.compiler.target>1.8</maven.compiler.target>
+        
+        <mariadb.password>mariadbtest</mariadb.password>
+        <postgresql.password>pgsqltest</postgresql.password>
+    </properties>
+    
+    <dependencies>        
+        <dependency>
+            <groupId>mysql</groupId>
+            <artifactId>mysql-connector-java</artifactId>
+            <version>5.1.37</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>9.3-1104-jdbc41</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.12</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+    
+    <build>
+        <plugins>
+            <plugin>                
+                <groupId>io.fabric8</groupId>
+                <artifactId>docker-maven-plugin</artifactId>
+                <version>0.26.0</version>
+                
+                <configuration>                    
+                    <!-- URL to Docker daemon -->
+                    <dockerHost>http://localhost:2375</dockerHost>
+                    
+                    <!-- Configured Docker images -->
+                    <images>
+                        
+                        <!-- MariaDB image -->
+                        <image>
+                            <name>test-mariadb</name>
+                            <alias>test-mariadb</alias>
+                            <build>
+                                <from>mariadb:10.3</from>
+                                <assembly>
+                                    <mode>dir</mode>
+                                    <!-- database startup script -->
+                                    <targetDir>/docker-entrypoint-initdb.d</targetDir>
+                                    <inline>
+                                        <files>
+                                            <file>
+                                                <source>src/test/docker/setup-mariadb.sql</source>
+                                            </file>
+                                        </files>
+                                    </inline>
+                                </assembly>
+                                <env>
+                                    <MYSQL_ROOT_PASSWORD>${mariadb.password}</MYSQL_ROOT_PASSWORD>
+                                </env>
+                            </build>
+                            <run>
+                                <!-- Wait for database up and running -->
+                                <wait>
+                                    <tcp>
+                                        <ports>
+                                            <port>3306</port>
+                                        </ports>
+                                    </tcp>
+                                </wait>
+                            </run>
+                        </image>
+                        
+                        <!-- PostgreSQL image -->
+                        <image>
+                            <name>test-postgres</name>
+                            <alias>test-postgres</alias>
+                            <build>
+                                <from>postgres:10.4</from>
+                                <assembly>
+                                    <mode>dir</mode>
+                                    <!-- database startup script -->
+                                    <targetDir>/docker-entrypoint-initdb.d</targetDir>
+                                    <inline>
+                                        <files>
+                                            <file>
+                                                <source>src/test/docker/setup-postgres.sql</source>
+                                            </file>
+                                        </files>
+                                    </inline>
+                                </assembly>
+                                <env>
+                                    <POSTGRES_PASSWORD>${postgresql.password}</POSTGRES_PASSWORD>
+                                </env>
+                            </build>
+                            <run>
+                                <!-- Wait for database up and running -->
+                                <wait>
+                                    <tcp>
+                                        <ports>
+                                            <port>5432</port>
+                                        </ports>
+                                    </tcp>
+                                </wait>
+                            </run>
+                        </image>
+                    </images>
+                    
+                    <!-- If we want to skip tests we should also skip Docker plugin execution -->
+                    <skip>${maven.test.skip}</skip>                    
+                </configuration>
+                
+                <executions>
+                    <execution>
+                        <!-- start Docker -->
+                        <id>start</id>
+                        <phase>pre-integration-test</phase>
+                        <goals>
+                            <goal>build</goal>
+                            <goal>start</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <!-- stop Docker -->
+                        <id>stop</id>
+                        <phase>post-integration-test</phase>
+                        <goals>
+                            <goal>stop</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            
+            <!-- maven-surefire-plugin executes unit tests. We need to exclude the IntegrationTest class here -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>2.22.0</version>
+                <configuration>
+                    <excludes>
+                        <exclude>**/IntegrationTest.java</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+            
+            <!-- maven-failsafe-plugin executes integration tests. We need to include the IntegrationTest class here -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <version>2.22.0</version>
+                <configuration>
+                    <includes>
+                        <include>**/IntegrationTest.java</include>
+                    </includes>
+                    <trimStackTrace>false</trimStackTrace>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            
+            <!-- We apply Maven filtering on test resources (see <testResources> element) -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>filter-resources</id>
+                        <phase>pre-integration-test</phase>
+                        <goals>
+                            <goal>testResources</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+        
+        <!-- Enabling the filtering on test resources we can dynamically fill the properties files from Maven properties -->
+        <testResources>
+            <testResource>
+                <directory>src/test/resources</directory>
+                <includes>
+                    <include>**/*.properties</include>
+                </includes>
+                <filtering>true</filtering>
+            </testResource>
+        </testResources>        
+    </build>
+</project>
